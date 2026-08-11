@@ -5,7 +5,6 @@ const ai = new GoogleGenAI({
 });
 
 export default async function handler(req, res) {
-
   if (req.method !== "POST") {
     return res.status(405).json({
       error: "POST only"
@@ -13,7 +12,6 @@ export default async function handler(req, res) {
   }
 
   try {
-
     const { question } = req.body;
 
     if (!question) {
@@ -24,19 +22,30 @@ export default async function handler(req, res) {
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: question
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: question
+            }
+          ]
+        }
+      ]
     });
 
-    res.status(200).json({
-      answer: response.text
+    const answer = response.text;
+
+    return res.status(200).json({
+      answer: answer
     });
 
   } catch (error) {
+    console.error("Gemini error:", error);
 
-    console.error(error);
-
-    res.status(500).json({
-      error: "AI request failed"
+    return res.status(500).json({
+      error: "AI request failed",
+      details: error.message
     });
   }
 }
