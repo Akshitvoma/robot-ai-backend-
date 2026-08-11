@@ -20,24 +20,13 @@ export default async function handler(req, res) {
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: question
-            }
-          ]
-        }
-      ]
+    const interaction = await ai.interactions.create({
+      model: "gemini-3.6-flash",
+      input: question
     });
 
-    const answer = response.text;
-
     return res.status(200).json({
-      answer: answer
+      answer: interaction.output_text
     });
 
   } catch (error) {
