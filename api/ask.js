@@ -6,22 +6,29 @@ const ai = new GoogleGenAI({
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "POST only" });
+    return res.status(405).json({
+      error: "POST only"
+    });
   }
 
   try {
     const { audio } = req.body;
 
     if (!audio) {
-      return res.status(400).json({ error: "Audio is required" });
+      return res.status(400).json({
+        error: "Audio is required"
+      });
     }
+
+    console.log("Audio received");
 
     const interaction = await ai.interactions.create({
       model: "gemini-3.6-flash",
+
       input: [
         {
           type: "text",
-          text: "Listen to this audio. Understand the user's question and answer it briefly and clearly."
+          text: "Listen to the user's audio. Understand what they are asking and answer their question clearly and briefly."
         },
         {
           type: "audio",
