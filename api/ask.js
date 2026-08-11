@@ -130,6 +130,10 @@ export default async function handler(req, res) {
 
     // Gemini TTS returns raw 16-bit PCM audio.
     const pcmAudio = Buffer.from(audioBase64, "base64");
+    console.log(
+  "TTS audio bytes:",
+  pcmAudio.length
+);
 
     // Gemini TTS audio is 24 kHz mono PCM.
     const wavHeader = createWavHeader(
