@@ -1,0 +1,8 @@
+{
+  "name": "robot-ai-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@google/genai": "^1.0.0"
+  }
+}
