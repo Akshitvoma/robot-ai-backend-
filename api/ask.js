@@ -13,9 +13,16 @@ function createWavHeader(dataSize, sampleRate = 24000) {
 
   header.write("fmt ", 12);
   header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);      // PCM
-  header.writeUInt16LE(1, 22);      // mono
+
+  // PCM
+  header.writeUInt16LE(1, 20);
+
+  // Mono
+  header.writeUInt16LE(1, 22);
+
   header.writeUInt32LE(sampleRate, 24);
+
+  // 16-bit mono
   header.writeUInt32LE(sampleRate * 2, 28);
   header.writeUInt16LE(2, 32);
   header.writeUInt16LE(16, 34);
@@ -26,24 +33,95 @@ function createWavHeader(dataSize, sampleRate = 24000) {
   return header;
 }
 
+async function generateSpeech(text) {
+
+  console.log("Generating TTS for:", text);
+
+  const response = await ai.models.generateContent({
+
+    model: "gemini-3.1-flash-tts-preview",
+
+    contents: [
+      {
+        parts: [
+          {
+            text: `Say naturally and clearly: ${text}`
+          }
+        ]
+      }
+    ],
+
+    config: {
+
+      responseModalities: ["AUDIO"],
+
+      speechConfig: {
+
+        voiceConfig: {
+
+          prebuiltVoiceConfig: {
+            voiceName: "Kore"
+          }
+
+        }
+
+      }
+
+    }
+
+  });
+
+  const parts =
+    response.candidates?.[0]?.content?.parts || [];
+
+  for (const part of parts) {
+
+    if (part.inlineData?.data) {
+
+      console.log(
+        "TTS audio received."
+      );
+
+      return Buffer.from(
+        part.inlineData.data,
+        "base64"
+      );
+    }
+  }
+
+  console.error(
+    "TTS response contained no audio."
+  );
+
+  return null;
+}
+
 export default async function handler(req, res) {
+
   if (req.method !== "POST") {
+
     return res.status(405).json({
       error: "POST only"
     });
   }
 
   try {
-    // Receive microphone WAV from ESP32
+
+    // =========================================
+    // Receive microphone WAV
+    // =========================================
+
     const chunks = [];
 
     for await (const chunk of req) {
       chunks.push(chunk);
     }
 
-    const inputAudio = Buffer.concat(chunks);
+    const inputAudio =
+      Buffer.concat(chunks);
 
     if (!inputAudio.length) {
+
       return res.status(400).json({
         error: "No audio received"
       });
@@ -55,98 +133,142 @@ export default async function handler(req, res) {
       "bytes"
     );
 
-    const inputBase64 = inputAudio.toString("base64");
 
-    // Ask Gemini to understand the question
-    const interaction = await ai.interactions.create({
-      model: "gemini-3.6-flash",
+    // =========================================
+    // Convert microphone WAV to Base64
+    // =========================================
 
-      input: [
-        {
-          type: "text",
-          text:
-            "The attached WAV contains a person speaking a question. " +
-            "Understand exactly what the person said. " +
-            "Do not invent a different question. " +
-            "Answer the question that was actually spoken. " +
-            "If unclear, say: I couldn't understand that. " +
-            "Keep the answer short because it will be spoken aloud."
-        },
-        {
-          type: "audio",
-          data: inputBase64,
-          mime_type: "audio/wav"
-        }
-      ]
-    });
+    const inputBase64 =
+      inputAudio.toString("base64");
 
-    const answer = interaction.output_text;
 
-    console.log("Gemini answer:", answer);
+    // =========================================
+    // Ask Gemini
+    // =========================================
 
-    // Generate speech
-    const ttsResponse = await ai.models.generateContent({
-      model: "gemini-3.1-flash-tts-preview",
+    const interaction =
+      await ai.interactions.create({
 
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: answer
-            }
-          ]
-        }
-      ],
+        model: "gemini-3.6-flash",
 
-      config: {
-        responseModalities: ["AUDIO"],
+        input: [
 
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: "Kore"
-            }
+          {
+            type: "text",
+
+            text:
+              "The attached WAV contains a person speaking a question. " +
+              "Understand exactly what the person said. " +
+              "Do not invent a different question. " +
+              "Answer the question that was actually spoken. " +
+              "If the speech is unclear, say: I couldn't understand that. " +
+              "Keep the answer short because it will be spoken aloud."
+          },
+
+          {
+            type: "audio",
+
+            data: inputBase64,
+
+            mime_type: "audio/wav"
           }
-        }
-      }
-    });
 
-    const parts =
-      ttsResponse.candidates?.[0]?.content?.parts || [];
+        ]
 
-    let audioBase64 = null;
+      });
 
-    for (const part of parts) {
-      if (part.inlineData?.data) {
-        audioBase64 = part.inlineData.data;
-        break;
-      }
+
+    const answer =
+      interaction.output_text;
+
+
+    if (!answer) {
+
+      return res.status(500).json({
+        error: "Gemini returned no answer"
+      });
     }
 
-    if (!audioBase64) {
-      throw new Error("TTS returned no audio");
-    }
 
-    // Gemini TTS returns raw 16-bit PCM audio.
-    const pcmAudio = Buffer.from(audioBase64, "base64");
     console.log(
-  "TTS audio bytes:",
-  pcmAudio.length
-);
-
-    // Gemini TTS audio is 24 kHz mono PCM.
-    const wavHeader = createWavHeader(
-      pcmAudio.length,
-      24000
+      "Gemini answer:",
+      answer
     );
 
-    const wavAudio = Buffer.concat([
-      wavHeader,
-      pcmAudio
-    ]);
 
-    // Send WAV directly to ESP32
+    // =========================================
+    // Generate TTS
+    // =========================================
+
+    let pcmAudio =
+      await generateSpeech(answer);
+
+
+    // =========================================
+    // Retry once if TTS failed
+    // =========================================
+
+    if (!pcmAudio || pcmAudio.length < 1000) {
+
+      console.log(
+        "TTS audio was missing or too small."
+      );
+
+      console.log(
+        "Retrying TTS..."
+      );
+
+      pcmAudio =
+        await generateSpeech(answer);
+    }
+
+
+    // =========================================
+    // Make sure we actually have audio
+    // =========================================
+
+    if (!pcmAudio || pcmAudio.length < 1000) {
+
+      throw new Error(
+        "Gemini TTS did not return valid audio."
+      );
+    }
+
+
+    console.log(
+      "TTS PCM bytes:",
+      pcmAudio.length
+    );
+
+
+    // =========================================
+    // Create WAV
+    // =========================================
+
+    const wavHeader =
+      createWavHeader(
+        pcmAudio.length,
+        24000
+      );
+
+
+    const wavAudio =
+      Buffer.concat([
+        wavHeader,
+        pcmAudio
+      ]);
+
+
+    console.log(
+      "Final WAV bytes:",
+      wavAudio.length
+    );
+
+
+    // =========================================
+    // Return WAV
+    // =========================================
+
     res.status(200);
 
     res.setHeader(
@@ -160,19 +282,30 @@ export default async function handler(req, res) {
     );
 
     res.setHeader(
-      "X-Answer",
-      encodeURIComponent(answer)
+      "Cache-Control",
+      "no-store"
     );
+
 
     return res.send(wavAudio);
 
-  } catch (error) {
+  }
 
-    console.error("Gemini error:", error);
+  catch (error) {
+
+    console.error(
+      "BACKEND ERROR:",
+      error
+    );
 
     return res.status(500).json({
-      error: "AI request failed",
-      details: error.message
+
+      error:
+        "AI request failed",
+
+      details:
+        error.message
+
     });
   }
 }
