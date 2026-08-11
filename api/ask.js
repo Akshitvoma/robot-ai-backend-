@@ -14,6 +14,10 @@ export default async function handler(req, res) {
 
   try {
 
+    // ========================================
+    // Receive WAV audio from ESP32
+    // ========================================
+
     const chunks = [];
 
     for await (const chunk of req) {
@@ -34,8 +38,18 @@ export default async function handler(req, res) {
       "bytes"
     );
 
+
+    // ========================================
+    // Convert WAV to Base64
+    // ========================================
+
     const audioBase64 =
       audioBuffer.toString("base64");
+
+
+    // ========================================
+    // Ask Gemini
+    // ========================================
 
     const interaction =
       await ai.interactions.create({
@@ -49,11 +63,11 @@ export default async function handler(req, res) {
 
             text:
               "The attached WAV contains a person speaking a question. " +
-              "First carefully determine exactly what the person said. " +
-              "Do not invent or guess a different question. " +
-              "Then answer the question that was actually spoken. " +
-              "If the speech is unclear, say: 'I couldn't understand that.' " +
-              "Keep the answer short and clear."
+              "First understand exactly what the person said. " +
+              "Do not invent a different question. " +
+              "Answer the question that was actually spoken. " +
+              "If the speech is unclear, say 'I couldn't understand that.' " +
+              "Keep the answer short because it will be spoken aloud."
           },
 
           {
@@ -72,20 +86,113 @@ export default async function handler(req, res) {
       interaction.output_text;
 
 
+    console.log(
+      "Gemini answer:",
+      answer
+    );
+
+
+    // ========================================
+    // Generate speech
+    // ========================================
+
+    const ttsResponse =
+      await ai.models.generateContent({
+
+        model:
+          "gemini-3.1-flash-tts-preview",
+
+        contents: [
+
+          {
+            role: "user",
+
+            parts: [
+
+              {
+                text: answer
+              }
+
+            ]
+          }
+
+        ],
+
+        config: {
+
+          responseModalities: [
+            "AUDIO"
+          ],
+
+          speechConfig: {
+
+            voiceConfig: {
+
+              prebuiltVoiceConfig: {
+
+                voiceName: "Kore"
+
+              }
+
+            }
+
+          }
+
+        }
+
+      });
+
+
+    // ========================================
+    // Find audio data
+    // ========================================
+
+    const parts =
+      ttsResponse.candidates?.[0]?.content?.parts || [];
+
+    let audioData = null;
+
+    for (const part of parts) {
+
+      if (part.inlineData) {
+
+        audioData =
+          part.inlineData.data;
+
+        break;
+      }
+    }
+
+
+    if (!audioData) {
+
+      throw new Error(
+        "TTS returned no audio"
+      );
+
+    }
+
+
+    // ========================================
+    // Return answer + audio
+    // ========================================
+
     return res.status(200).json({
 
-      answer: answer
+      answer: answer,
+
+      audio: audioData
 
     });
 
+  }
 
-  } catch (error) {
+  catch (error) {
 
     console.error(
       "Gemini error:",
       error
     );
-
 
     return res.status(500).json({
 
