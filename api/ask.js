@@ -12,27 +12,38 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { audio } = req.body;
+    // Receive raw WAV data
+    const chunks = [];
 
-    if (!audio) {
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+
+    const audioBuffer = Buffer.concat(chunks);
+
+    if (!audioBuffer.length) {
       return res.status(400).json({
-        error: "Audio is required"
+        error: "No audio received"
       });
     }
 
-    console.log("Audio received");
+    console.log("Received audio:", audioBuffer.length, "bytes");
 
+    // Convert WAV binary to Base64
+    const audioBase64 = audioBuffer.toString("base64");
+
+    // Send audio to Gemini
     const interaction = await ai.interactions.create({
       model: "gemini-3.6-flash",
 
       input: [
         {
           type: "text",
-          text: "Listen to the user's audio. Understand what they are asking and answer their question clearly and briefly."
+          text: "Listen to this audio. Understand the user's question and answer it clearly and briefly."
         },
         {
           type: "audio",
-          data: audio,
+          data: audioBase64,
           mime_type: "audio/wav"
         }
       ]
