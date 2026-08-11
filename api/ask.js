@@ -5,6 +5,7 @@ const ai = new GoogleGenAI({
 });
 
 export default async function handler(req, res) {
+
   if (req.method !== "POST") {
     return res.status(405).json({
       error: "POST only"
@@ -12,7 +13,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Receive raw WAV data
+
     const chunks = [];
 
     for await (const chunk of req) {
@@ -27,38 +28,75 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log("Received audio:", audioBuffer.length, "bytes");
+    console.log(
+      "Received audio:",
+      audioBuffer.length,
+      "bytes"
+    );
 
-    // Convert WAV binary to Base64
-    const audioBase64 = audioBuffer.toString("base64");
+    const audioBase64 =
+      audioBuffer.toString("base64");
 
-    // Send audio to Gemini
-    const interaction = await ai.interactions.create({
-      model: "gemini-3.6-flash",
+    const interaction =
+      await ai.interactions.create({
 
-      input: [
-        {
-          type: "text",
-          text: "Listen to this audio. Understand the user's question and answer it clearly and briefly."
-        },
-        {
-          type: "audio",
-          data: audioBase64,
-          mime_type: "audio/wav"
-        }
-      ]
-    });
+        model: "gemini-3.6-flash",
+
+        input: [
+
+          {
+            type: "text",
+
+            text:
+              "The attached WAV contains a person speaking a question. " +
+              "First carefully determine exactly what the person said. " +
+              "Do not invent or guess a different question. " +
+              "Then answer the question that was actually spoken. " +
+              "If the speech is unclear, say: 'I couldn't understand that.' " +
+              "Keep the answer short and clear."
+          },
+
+          {
+            type: "audio",
+
+            data: audioBase64,
+
+            mime_type: "audio/wav"
+          }
+
+        ]
+      });
+
+
+    const answer =
+      interaction.output_text;
+
 
     return res.status(200).json({
-      answer: interaction.output_text
+
+      answer: answer
+
     });
+
 
   } catch (error) {
-    console.error("Gemini error:", error);
+
+    console.error(
+      "Gemini error:",
+      error
+    );
+
 
     return res.status(500).json({
-      error: "AI request failed",
-      details: error.message
+
+      error:
+        "AI request failed",
+
+      details:
+        error.message
+
     });
+
   }
+
 }
